@@ -1,0 +1,70 @@
+kind: Job
+apiVersion: batch/v1
+metadata:
+  name: clear-dead-letter-queue
+  namespace: openunison
+spec:
+  parallelism: 1
+  completions: 1
+  backoffLimit: 1
+  selector:
+    matchLabels:
+      job-name: clear-dead-letter-queue
+  template:
+    metadata:
+      labels:
+        job-name: clear-dead-letter-queue
+    spec:
+      volumes:
+        - name: secret-volume
+          secret:
+            secretName: orchestra
+            defaultMode: 420
+        - name: configuration
+          emptyDir: {}
+      initContainers:
+        - name: copy-config
+          image: docker.io/openunison/openunison-k8s-activedirectory:latest
+          command:
+            - sh
+            - '-c'
+            - 'cp -r /usr/local/openunison/work/webapp/WEB-INF/* /etc/openunison-config/'
+          resources: {}
+          volumeMounts:
+            - name: configuration
+              mountPath: /etc/openunison-config
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: Always
+      containers:
+        - name: clear-dead-letter-queue
+          image: 'docker.io/tremolosecurity/clear-dlq:latest'
+          command:
+            - java
+            - '-jar'
+            - /usr/local/openunison/openunison-utils.jar
+            - '-action'
+            - clear-dlq
+            - '-unisonXMLFile'
+            - /etc/openunison-config/unison.xml
+            - '-envFile'
+            - /etc/openunison/ou.env
+            - '-keystorePath'
+            - /etc/openunison/unisonKeyStore.p12
+            - '-dlqName'
+            - openunison-dlq-eks.fifo
+          resources: {}
+          volumeMounts:
+            - name: secret-volume
+              readOnly: true
+              mountPath: /etc/openunison
+            - name: configuration
+              mountPath: /etc/openunison-config
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: Always
+      restartPolicy: Never
+      serviceAccountName: openunison-operator
+      serviceAccount: openunison-operator
+
+
